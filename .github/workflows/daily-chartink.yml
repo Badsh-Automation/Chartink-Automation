@@ -2,7 +2,8 @@ name: Daily Chartink Dashboard
 
 on:
   schedule:
-    - cron: '30 11 * * *'  # 5:00 PM IST = 11:30 AM UTC
+    # Monday to Friday at 5:00 PM IST (11:30 AM UTC)
+    - cron: '30 11 * * 1-5'
   workflow_dispatch:
 
 jobs:
@@ -26,11 +27,6 @@ jobs:
       - name: Setup ChromeDriver
         uses: nanasess/setup-chromedriver@v2
 
-      - name: Verify Chrome
-        run: |
-          google-chrome --version
-          chromedriver --version
-
       - name: Install Python dependencies
         run: |
           pip install -r requirements.txt
@@ -41,11 +37,11 @@ jobs:
           CHARTINK_PASSWORD: ${{ secrets.CHARTINK_PASSWORD }}
           GOOGLE_DRIVE_CREDENTIALS: ${{ secrets.GOOGLE_DRIVE_CREDENTIALS }}
           GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
-        run: python chartink_complete.py
+        run: python chartink_final.py
 
       - name: Upload artifact (backup)
         uses: actions/upload-artifact@v4
         with:
           name: dashboard-backup-${{ github.run_id }}
-          path: output/Dashboard_*.xlsx
+          path: output/*.xlsx
           retention-days: 7
