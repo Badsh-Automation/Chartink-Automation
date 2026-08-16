@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
 ================================================================================
-CHARTINK DASHBOARD - EMAIL VERSION
+CHARTINK DASHBOARD - OUTLOOK/EMAIL VERSION
 ================================================================================
-Sends dashboard via email instead of Google Drive
+Works with: Gmail, Outlook, Office 365, Yahoo, etc.
 ================================================================================
 """
 
@@ -33,6 +33,7 @@ OUTPUT_FOLDER = os.path.join(os.getcwd(), "output")
 EMAIL_SENDER = os.environ.get("EMAIL_SENDER", "")
 EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD", "")
 EMAIL_RECEIVER = os.environ.get("EMAIL_RECEIVER", "")
+EMAIL_PROVIDER = os.environ.get("EMAIL_PROVIDER", "gmail").lower()  # gmail, outlook, yahoo
 
 SCREENER_LONG_URL = "https://chartink.com/screener/badsha-long"
 SCREENER_SHORT_URL = "https://chartink.com/screener/badsha-short"
@@ -41,6 +42,15 @@ SHORT_PREFIX = "badsha short"
 
 def is_weekday():
     return datetime.now().weekday() < 5
+
+# SMTP Config based on provider
+SMTP_CONFIG = {
+    "gmail": {"server": "smtp.gmail.com", "port": 587},
+    "outlook": {"server": "smtp.office365.com", "port": 587},
+    "office365": {"server": "smtp.office365.com", "port": 587},
+    "yahoo": {"server": "smtp.mail.yahoo.com", "port": 587},
+    "hotmail": {"server": "smtp.office365.com", "port": 587},
+}
 
 FNO_STOCKS = [
     "IBULHSGFIN", "MCDOWELL-N", "L&TFH", "GMRINFRA", "TATAMOTORS", "IDFC",
@@ -409,12 +419,19 @@ def _apply_sell_color(worksheet):
             cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
             cell.font = Font(color="9C0006")
 
-# EMAIL FUNCTION
+# EMAIL FUNCTION - Works with Gmail, Outlook, Yahoo, etc.
 def send_email(file_path):
     try:
         if not all([EMAIL_SENDER, EMAIL_PASSWORD, EMAIL_RECEIVER]):
             print("[WARNING] Email credentials not set, skipping email")
             return False
+
+        # Get SMTP config for the provider
+        smtp_config = SMTP_CONFIG.get(EMAIL_PROVIDER, SMTP_CONFIG["gmail"])
+        smtp_server = smtp_config["server"]
+        smtp_port = smtp_config["port"]
+
+        print(f"[EMAIL] Using {EMAIL_PROVIDER} SMTP: {smtp_server}:{smtp_port}")
 
         msg = MIMEMultipart()
         msg['From'] = EMAIL_SENDER
@@ -449,18 +466,20 @@ Chartink Automation
         attachment.add_header('Content-Disposition', f'attachment; filename={os.path.basename(file_path)}')
         msg.attach(attachment)
 
-        # Send via Gmail SMTP
-        server = smtplib.SMTP('smtp.gmail.com', 587)
+        # Send email
+        server = smtplib.SMTP(smtp_server, smtp_port)
         server.starttls()
         server.login(EMAIL_SENDER, EMAIL_PASSWORD)
         server.send_message(msg)
         server.quit()
 
-        print(f"[EMAIL] Sent to {EMAIL_RECEIVER}")
+        print(f"[EMAIL] ✅ Sent successfully to {EMAIL_RECEIVER}")
         return True
 
     except Exception as e:
         print(f"[ERROR] Email failed: {e}")
+        print("[TIP] For Outlook: Use your normal password (NOT App Password)")
+        print("[TIP] For Gmail: Use App Password (16-char)")
         return False
 
 def main():
@@ -472,8 +491,9 @@ def main():
         return
 
     print("=" * 70)
-    print("  CHARTINK DASHBOARD AUTOMATION - EMAIL VERSION")
+    print("  CHARTINK DASHBOARD AUTOMATION")
     print(f"  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | Weekday: {datetime.now().strftime('%A')}")
+    print(f"  Email Provider: {EMAIL_PROVIDER}")
     print("=" * 70)
 
     create_all_folders()
