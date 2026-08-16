@@ -1,0 +1,2 @@
+# Chartink-Automation
+Chartink Automation
