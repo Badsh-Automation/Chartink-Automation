@@ -1,27 +1,25 @@
 #!/usr/bin/env python3
 """
 ================================================================================
-CHARTINK DASHBOARD - UPDATED VERSION
+CHARTINK DASHBOARD - EMAIL VERSION
 ================================================================================
-Features:
-  • Single Excel file (data appends daily)
-  • Weekdays only (Mon-Fri, skips Sat/Sun)
-  • BUY sheet: Only BUY rows (green)
-  • SELL sheet: Only SELL rows (red)
-  • Long & Short sheets: As-is
+Sends dashboard via email instead of Google Drive
 ================================================================================
 """
 
 import os
 import sys
-import json
 import time
 import re
-from datetime import date, datetime, timedelta
+import smtplib
+from datetime import date, datetime
+from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email.mime.text import MIMEText
+from email import encoders
 
 import pandas as pd
 from openpyxl.styles import Font, PatternFill, Alignment
-from openpyxl import load_workbook
 
 # CONFIG
 CHARTINK_EMAIL = os.environ.get("CHARTINK_EMAIL", "")
@@ -31,14 +29,18 @@ CHARTINK1_FOLDER = os.path.join(BASE_DIR, "Chartink1")
 CHARTINK_FOLDER = os.path.join(BASE_DIR, "Chartink")
 OUTPUT_FOLDER = os.path.join(os.getcwd(), "output")
 
+# Email config from secrets
+EMAIL_SENDER = os.environ.get("EMAIL_SENDER", "")
+EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD", "")
+EMAIL_RECEIVER = os.environ.get("EMAIL_RECEIVER", "")
+
 SCREENER_LONG_URL = "https://chartink.com/screener/badsha-long"
 SCREENER_SHORT_URL = "https://chartink.com/screener/badsha-short"
 LONG_PREFIX = "badsha long"
 SHORT_PREFIX = "badsha short"
 
-# Weekday check - skip Sat(5) & Sun(6)
 def is_weekday():
-    return datetime.now().weekday() < 5  # 0=Mon, 4=Fri
+    return datetime.now().weekday() < 5
 
 FNO_STOCKS = [
     "IBULHSGFIN", "MCDOWELL-N", "L&TFH", "GMRINFRA", "TATAMOTORS", "IDFC",
@@ -255,7 +257,6 @@ def create_short_sheet(chartink_df):
         'Changes': df['%_change'].apply(lambda x: f"{x}%"), 'Last Price': df['close'], 'Status': df['Signal']
     })
 
-# BUY sheet - ONLY BUY rows, green color
 def create_buy_sheet(long_df):
     if long_df.empty: return pd.DataFrame()
     buy_df = long_df[long_df['Status'] == 'BUY'].copy()
@@ -263,7 +264,6 @@ def create_buy_sheet(long_df):
     print(f"[INFO] BUY sheet: {len(buy_df)} rows (only BUY)")
     return buy_df
 
-# SELL sheet - ONLY SELL rows, red color
 def create_sell_sheet(short_df):
     if short_df.empty: return pd.DataFrame()
     sell_df = short_df[short_df['Status'] == 'SELL'].copy()
@@ -281,25 +281,18 @@ def create_fno_sheet(chartink1_df, chartink_df):
     fno_df['Count in Data'] = fno_df['Symbol'].map(symbol_counts)
     return fno_df.sort_values(['FNO Category', 'Symbol'])
 
-# Append data to existing file or create new
 def append_to_excel(existing_file, new_data_dict):
-    """Append new data to existing Excel file, avoiding duplicates"""
     if not os.path.exists(existing_file):
-        return False  # File doesn't exist, create new
-
+        return False
     try:
-        # Read existing sheets
         existing_sheets = {}
         with pd.ExcelFile(existing_file) as xls:
             for sheet_name in xls.sheet_names:
                 existing_sheets[sheet_name] = pd.read_excel(xls, sheet_name=sheet_name)
-
-        # Append new data to each sheet
         with pd.ExcelWriter(existing_file, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
             for sheet_name, new_df in new_data_dict.items():
                 if sheet_name in existing_sheets and not existing_sheets[sheet_name].empty:
                     existing_df = existing_sheets[sheet_name]
-                    # Combine and drop duplicates based on all columns
                     combined = pd.concat([existing_df, new_df], ignore_index=True)
                     combined = combined.drop_duplicates()
                     combined.to_excel(writer, sheet_name=sheet_name, index=False)
@@ -307,7 +300,6 @@ def append_to_excel(existing_file, new_data_dict):
                 else:
                     new_df.to_excel(writer, sheet_name=sheet_name, index=False)
                     print(f"  ✓ {sheet_name}: Created ({len(new_df)} rows)")
-
         return True
     except Exception as e:
         print(f"[WARNING] Could not append: {e}, creating fresh file")
@@ -318,7 +310,6 @@ def generate_dashboard(chartink1_df, chartink_df, long_df, short_df, buy_df, sel
     os.makedirs(OUTPUT_FOLDER, exist_ok=True)
     print(f"\n[INFO] Generating: {output_file}")
 
-    # Check if file exists and append
     new_data = {
         'Chartink1 (2)': chartink1_df if not chartink1_df.empty else pd.DataFrame(),
         'Chartink (2)': chartink_df if not chartink_df.empty else pd.DataFrame(),
@@ -337,7 +328,6 @@ def generate_dashboard(chartink1_df, chartink_df, long_df, short_df, buy_df, sel
             print("[SUCCESS] Data appended to existing file")
             return output_file
 
-    # Create new file
     with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
         if not chartink1_df.empty:
             cols = ['Source.Name'] + [c for c in chartink1_df.columns if c != 'Source.Name']
@@ -369,13 +359,13 @@ def generate_dashboard(chartink1_df, chartink_df, long_df, short_df, buy_df, sel
         if not buy_df.empty:
             buy_df.to_excel(writer, sheet_name='BUY', index=False)
             _format_sheet(writer.sheets['BUY'])
-            _apply_buy_color(writer.sheets['BUY'])  # Green for BUY
+            _apply_buy_color(writer.sheets['BUY'])
             print(f"  ✓ BUY: {len(buy_df)} rows (only BUY)")
 
         if not sell_df.empty:
             sell_df.to_excel(writer, sheet_name='SELL', index=False)
             _format_sheet(writer.sheets['SELL'])
-            _apply_sell_color(writer.sheets['SELL'])  # Red for SELL
+            _apply_sell_color(writer.sheets['SELL'])
             print(f"  ✓ SELL: {len(sell_df)} rows (only SELL)")
 
         if not fno_df.empty:
@@ -407,71 +397,73 @@ def _format_sheet(worksheet):
             for cell in worksheet[row_idx]:
                 cell.fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
 
-# Green color for BUY sheet
 def _apply_buy_color(worksheet):
-    # Make entire BUY sheet green-tinted for BUY status
     for row in range(2, worksheet.max_row + 1):
         for cell in worksheet[row]:
             cell.fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
             cell.font = Font(color="006100")
 
-# Red color for SELL sheet
 def _apply_sell_color(worksheet):
-    # Make entire SELL sheet red-tinted for SELL status
     for row in range(2, worksheet.max_row + 1):
         for cell in worksheet[row]:
             cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
             cell.font = Font(color="9C0006")
 
-def upload_to_google_drive(file_path):
+# EMAIL FUNCTION
+def send_email(file_path):
     try:
-        from googleapiclient.discovery import build
-        from googleapiclient.http import MediaFileUpload
-        from google.oauth2 import service_account
+        if not all([EMAIL_SENDER, EMAIL_PASSWORD, EMAIL_RECEIVER]):
+            print("[WARNING] Email credentials not set, skipping email")
+            return False
 
-        creds_json = os.environ.get("GOOGLE_DRIVE_CREDENTIALS", "")
-        if not creds_json:
-            print("[WARNING] GOOGLE_DRIVE_CREDENTIALS not set, skipping upload")
-            return None
+        msg = MIMEMultipart()
+        msg['From'] = EMAIL_SENDER
+        msg['To'] = EMAIL_RECEIVER
+        msg['Subject'] = f'Chartink Dashboard - {datetime.now().strftime("%Y-%m-%d")}'
 
-        creds_info = json.loads(creds_json)
-        credentials = service_account.Credentials.from_service_account_info(
-            creds_info,
-            scopes=['https://www.googleapis.com/auth/drive']
-        )
+        body = f"""
+Hello,
 
-        service = build('drive', 'v3', credentials=credentials)
-        folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID", "")
-        file_name = os.path.basename(file_path)
+Your Chartink Dashboard for {datetime.now().strftime("%d-%m-%Y")} is ready!
 
-        query = f"name='{file_name}' and trashed=false"
-        if folder_id:
-            query += f" and '{folder_id}' in parents"
+Attached file contains:
+• Chartink1 (2) - Long scan data
+• Chartink (2) - Short scan data
+• Long - Reformatted long data
+• Short - Reformatted short data
+• Stocks FNO - FNO stock list
+• BUY - Only BUY signals (Green)
+• SELL - Only SELL signals (Red)
+• FNO - FNO analysis
 
-        results = service.files().list(q=query, spaces='drive', fields='files(id, name)').execute()
-        existing_files = results.get('files', [])
+Best regards,
+Chartink Automation
+"""
+        msg.attach(MIMEText(body, 'plain'))
 
-        media = MediaFileUpload(file_path, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        # Attach file
+        with open(file_path, 'rb') as f:
+            attachment = MIMEBase('application', 'octet-stream')
+            attachment.set_payload(f.read())
+        encoders.encode_base64(attachment)
+        attachment.add_header('Content-Disposition', f'attachment; filename={os.path.basename(file_path)}')
+        msg.attach(attachment)
 
-        if existing_files:
-            file_id = existing_files[0]['id']
-            updated = service.files().update(fileId=file_id, media_body=media).execute()
-            print(f"[DRIVE] Updated: {file_name}")
-            return file_id
-        else:
-            file_metadata = {'name': file_name}
-            if folder_id:
-                file_metadata['parents'] = [folder_id]
-            created = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
-            print(f"[DRIVE] Uploaded: {file_name}")
-            return created['id']
+        # Send via Gmail SMTP
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.starttls()
+        server.login(EMAIL_SENDER, EMAIL_PASSWORD)
+        server.send_message(msg)
+        server.quit()
+
+        print(f"[EMAIL] Sent to {EMAIL_RECEIVER}")
+        return True
 
     except Exception as e:
-        print(f"[ERROR] Google Drive upload failed: {e}")
-        return None
+        print(f"[ERROR] Email failed: {e}")
+        return False
 
 def main():
-    # Check weekday
     if not is_weekday():
         print("[INFO] Weekend (Sat/Sun) - Skipping run")
         print("=" * 70)
@@ -480,7 +472,7 @@ def main():
         return
 
     print("=" * 70)
-    print("  CHARTINK DASHBOARD AUTOMATION")
+    print("  CHARTINK DASHBOARD AUTOMATION - EMAIL VERSION")
     print(f"  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | Weekday: {datetime.now().strftime('%A')}")
     print("=" * 70)
 
@@ -496,15 +488,15 @@ def main():
     print("\n[PHASE 3] Creating sheets...")
     long_df = create_long_sheet(chartink1_df)
     short_df = create_short_sheet(chartink_df)
-    buy_df = create_buy_sheet(long_df)      # Only BUY rows
-    sell_df = create_sell_sheet(short_df)   # Only SELL rows
+    buy_df = create_buy_sheet(long_df)
+    sell_df = create_sell_sheet(short_df)
     fno_df = create_fno_sheet(chartink1_df, chartink_df)
 
     print("\n[PHASE 4] Generating Dashboard...")
     output_file = generate_dashboard(chartink1_df, chartink_df, long_df, short_df, buy_df, sell_df, fno_df)
 
-    print("\n[PHASE 5] Uploading to Google Drive...")
-    upload_to_google_drive(output_file)
+    print("\n[PHASE 5] Sending Email...")
+    send_email(output_file)
 
     print("\n" + "=" * 70)
     print("  ✅ ALL DONE!")
