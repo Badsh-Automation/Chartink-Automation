@@ -1,0 +1,26 @@
+name: Keepalive
+
+on:
+  schedule:
+    - cron: '0 0 1 * *'  # Har mahine 1st ko chalega
+  workflow_dispatch:
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Update keepalive
+        run: |
+          echo "Last active: $(date)" > keepalive.txt
+          
+      - name: Commit
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add keepalive.txt
+          git diff --quiet && git diff --staged --quiet || git commit -m "Keepalive: $(date)"
+          git push
