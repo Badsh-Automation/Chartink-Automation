@@ -1,30 +1,21 @@
 #!/usr/bin/env python3
-"""
-================================================================================
-CHARTINK COMPLETE AUTOMATION - GITHUB ACTIONS VERSION
-================================================================================
-Runs on: GitHub Actions (Ubuntu) - Daily 5 PM IST
-Outputs: Dashboard Excel → Google Drive
-================================================================================
-"""
+"""CHARTINK COMPLETE AUTOMATION - FIXED VERSION"""
 
 import os
 import sys
 import json
 import time
 import re
+import argparse
+import getpass
 from datetime import date, datetime
 
 import pandas as pd
 from openpyxl.styles import Font, PatternFill, Alignment
 
-# ============================================================
-# CONFIGURATION (from Environment Variables / GitHub Secrets)
-# ============================================================
+# CONFIG
 CHARTINK_EMAIL = os.environ.get("CHARTINK_EMAIL", "")
 CHARTINK_PASSWORD = os.environ.get("CHARTINK_PASSWORD", "")
-
-# Paths (GitHub Actions Ubuntu)
 BASE_DIR = os.path.join(os.getcwd(), "data")
 CHARTINK1_FOLDER = os.path.join(BASE_DIR, "Chartink1")
 CHARTINK_FOLDER = os.path.join(BASE_DIR, "Chartink")
@@ -35,9 +26,6 @@ SCREENER_SHORT_URL = "https://chartink.com/screener/badsha-short"
 LONG_PREFIX = "badsha long"
 SHORT_PREFIX = "badsha short"
 
-# ============================================================
-# FNO STATIC LIST
-# ============================================================
 FNO_STOCKS = [
     "IBULHSGFIN", "MCDOWELL-N", "L&TFH", "GMRINFRA", "TATAMOTORS", "IDFC",
     "LTIM", "PEL", "IDEA", "ABCAPITAL", "IDFCFIRSTB", "HDFCBANK", "IRCTC",
@@ -70,17 +58,12 @@ FNO_STOCKS = [
     "ABBOTINDIA"
 ]
 
-# ============================================================
-# STEP 0: CREATE FOLDERS
-# ============================================================
 def create_all_folders():
     for folder in [CHARTINK1_FOLDER, CHARTINK_FOLDER, OUTPUT_FOLDER]:
         os.makedirs(folder, exist_ok=True)
         print(f"[FOLDER] {folder}")
 
-# ============================================================
-# STEP 1: DOWNLOAD FILES (Selenium on Ubuntu)
-# ============================================================
+# DOWNLOAD
 def download_files():
     from selenium import webdriver
     from selenium.webdriver.common.by import By
@@ -110,7 +93,6 @@ def download_files():
         wait = WebDriverWait(driver, 20)
         time.sleep(3)
 
-        # Email
         for by, sel in [(By.ID, "login-email"), (By.NAME, "email"), (By.CSS_SELECTOR, "input[type='email']")]:
             try:
                 el = wait.until(EC.presence_of_element_located((by, sel)))
@@ -120,7 +102,6 @@ def download_files():
             except:
                 continue
 
-        # Password
         for by, sel in [(By.ID, "login-password"), (By.NAME, "password"), (By.CSS_SELECTOR, "input[type='password']")]:
             try:
                 el = driver.find_element(by, sel)
@@ -130,7 +111,6 @@ def download_files():
             except:
                 continue
 
-        # Login button
         for by, sel in [
             (By.XPATH, "//button[.//span[contains(text(),'Log in')]]"),
             (By.CSS_SELECTOR, "button.primary-button"),
@@ -223,9 +203,7 @@ def download_files():
     finally:
         driver.quit()
 
-# ============================================================
-# STEP 2-9: DATA PROCESSING (Same as before)
-# ============================================================
+# PROCESS
 def transform_file(file_path):
     try:
         df = pd.read_excel(file_path, sheet_name='Watchlist', engine='openpyxl')
@@ -243,6 +221,7 @@ def process_chartink1_folder():
     files = [f for f in os.listdir(CHARTINK1_FOLDER) if f.endswith('.xlsx') and not f.startswith('~$')]
     if not files:
         return pd.DataFrame()
+    print(f"[INFO] Found {len(files)} files: {files}")
     dfs = []
     for f in files:
         df = transform_file(os.path.join(CHARTINK1_FOLDER, f))
@@ -254,7 +233,9 @@ def process_chartink1_folder():
     combined = pd.concat(dfs, ignore_index=True)
     if '%_change' in combined.columns:
         combined = combined[combined['%_change'] >= 3].copy()
-        combined['Signal'] = combined['%_change'].apply(lambda x: 'BUY' if pd.to_numeric(x, errors='coerce') >= 5 else 'SELL')
+        combined['Signal'] = combined['%_change'].apply(
+            lambda x: 'BUY' if pd.to_numeric(x, errors='coerce') >= 5 else 'SELL'
+        )
     print(f"[INFO] Long: {len(combined)} rows")
     return combined
 
@@ -265,6 +246,7 @@ def process_chartink_folder():
     files = [f for f in os.listdir(CHARTINK_FOLDER) if f.endswith('.xlsx') and not f.startswith('~$')]
     if not files:
         return pd.DataFrame()
+    print(f"[INFO] Found {len(files)} files: {files}")
     dfs = []
     for f in files:
         df = transform_file(os.path.join(CHARTINK_FOLDER, f))
@@ -276,51 +258,92 @@ def process_chartink_folder():
     combined = pd.concat(dfs, ignore_index=True)
     if '%_change' in combined.columns:
         combined = combined[combined['%_change'] >= 1].copy()
-        combined['Signal'] = combined['%_change'].apply(lambda x: 'BUY' if pd.to_numeric(x, errors='coerce') >= 2 else 'SELL')
+        combined['Signal'] = combined['%_change'].apply(
+            lambda x: 'BUY' if pd.to_numeric(x, errors='coerce') >= 2 else 'SELL'
+        )
     print(f"[INFO] Short: {len(combined)} rows")
     return combined
 
+# CREATE SHEETS
 def create_long_sheet(chartink1_df):
     if chartink1_df.empty:
         return pd.DataFrame()
     df = chartink1_df.copy()
-    df['Date'] = df['Source.Name'].apply(lambda x: re.search(r'\((\d{4}-\d{2}-\d{2})\)', str(x)).group(1) if re.search(r'\((\d{4}-\d{2}-\d{2})\)', str(x)) else '')
+    df['Date'] = df['Source.Name'].apply(
+        lambda x: re.search(r'\((\d{4}-\d{2}-\d{2})\)', str(x)).group(1) if re.search(r'\((\d{4}-\d{2}-\d{2})\)', str(x)) else ''
+    )
     return pd.DataFrame({
-        'File Name': df['Source.Name'], 'Date': df['Date'], 'Stock Name': df['Stock Name'],
-        'Symbol': df['Symbol'], 'Date ': df['Date'], 'Volume': df['volume'],
-        'Changes': df['%_change'].apply(lambda x: f"{x}%"), 'Last Price': df['close'], 'Status': df['Signal']
+        'File Name': df['Source.Name'],
+        'Date': df['Date'],
+        'Stock Name': df['Stock Name'],
+        'Symbol': df['Symbol'],
+        'Date ': df['Date'],
+        'Volume': df['volume'],
+        'Changes': df['%_change'].apply(lambda x: f"{x}%"),
+        'Last Price': df['close'],
+        'Status': df['Signal']
     })
 
 def create_short_sheet(chartink_df):
     if chartink_df.empty:
         return pd.DataFrame()
     df = chartink_df.copy()
-    df['Date'] = df['Source.Name'].apply(lambda x: re.search(r'\((\d{4}-\d{2}-\d{2})\)', str(x)).group(1) if re.search(r'\((\d{4}-\d{2}-\d{2})\)', str(x)) else '')
+    df['Date'] = df['Source.Name'].apply(
+        lambda x: re.search(r'\((\d{4}-\d{2}-\d{2})\)', str(x)).group(1) if re.search(r'\((\d{4}-\d{2}-\d{2})\)', str(x)) else ''
+    )
     return pd.DataFrame({
-        'File Name': df['Source.Name'], 'Date': df['Date'], 'Stock Name': df['Stock Name'],
-        'Symbol': df['Symbol'], 'Volume': df['volume'],
-        'Changes': df['%_change'].apply(lambda x: f"{x}%"), 'Last Price': df['close'], 'Status': df['Signal']
+        'File Name': df['Source.Name'],
+        'Date': df['Date'],
+        'Stock Name': df['Stock Name'],
+        'Symbol': df['Symbol'],
+        'Volume': df['volume'],
+        'Changes': df['%_change'].apply(lambda x: f"{x}%"),
+        'Last Price': df['close'],
+        'Status': df['Signal']
     })
 
+# FIXED PIVOT TABLES
 def create_buy_pivot(long_df):
     if long_df.empty:
         return pd.DataFrame()
-    pivot = long_df.pivot_table(index=['Date', 'Symbol'], columns='Status', values='Symbol', aggfunc='count', fill_value=0).reset_index()
-    if 'BUY' not in pivot.columns: pivot['BUY'] = 0
-    if 'SELL' not in pivot.columns: pivot['SELL'] = 0
-    pivot['Grand Total'] = pivot['BUY'] + pivot['SELL']
+
+    # Ensure Symbol and Status are clean strings
+    long_df = long_df.copy()
+    long_df['Symbol'] = long_df['Symbol'].astype(str).str.strip()
+    long_df['Status'] = long_df['Status'].astype(str).str.strip()
+
+    # Use groupby instead of pivot_table for reliability
+    grouped = long_df.groupby(['Date', 'Symbol', 'Status']).size().unstack(fill_value=0).reset_index()
+
+    if 'BUY' not in grouped.columns:
+        grouped['BUY'] = 0
+    if 'SELL' not in grouped.columns:
+        grouped['SELL'] = 0
+
+    grouped['Grand Total'] = grouped['BUY'] + grouped['SELL']
+
     cols = ['Date', 'Symbol', 'BUY', 'SELL', 'Grand Total']
-    return pivot[[c for c in cols if c in pivot.columns]]
+    return grouped[[c for c in cols if c in grouped.columns]]
 
 def create_sell_pivot(short_df):
     if short_df.empty:
         return pd.DataFrame()
-    pivot = short_df.pivot_table(index=['Date', 'Symbol'], columns='Status', values='Symbol', aggfunc='count', fill_value=0).reset_index()
-    if 'BUY' not in pivot.columns: pivot['BUY'] = 0
-    if 'SELL' not in pivot.columns: pivot['SELL'] = 0
-    pivot['Grand Total'] = pivot['BUY'] + pivot['SELL']
+
+    short_df = short_df.copy()
+    short_df['Symbol'] = short_df['Symbol'].astype(str).str.strip()
+    short_df['Status'] = short_df['Status'].astype(str).str.strip()
+
+    grouped = short_df.groupby(['Date', 'Symbol', 'Status']).size().unstack(fill_value=0).reset_index()
+
+    if 'BUY' not in grouped.columns:
+        grouped['BUY'] = 0
+    if 'SELL' not in grouped.columns:
+        grouped['SELL'] = 0
+
+    grouped['Grand Total'] = grouped['BUY'] + grouped['SELL']
+
     cols = ['Date', 'Symbol', 'BUY', 'SELL', 'Grand Total']
-    return pivot[[c for c in cols if c in pivot.columns]]
+    return grouped[[c for c in cols if c in grouped.columns]]
 
 def create_fno_sheet(chartink1_df, chartink_df):
     all_data = pd.concat([chartink1_df, chartink_df], ignore_index=True)
@@ -333,9 +356,7 @@ def create_fno_sheet(chartink1_df, chartink_df):
     fno_df['Count in Data'] = fno_df['Symbol'].map(symbol_counts)
     return fno_df.sort_values(['FNO Category', 'Symbol'])
 
-# ============================================================
-# STEP 10: GENERATE DASHBOARD
-# ============================================================
+# GENERATE DASHBOARD
 def generate_dashboard(chartink1_df, chartink_df, long_df, short_df, buy_pivot, sell_pivot, fno_df):
     today = datetime.now().strftime('%Y-%m-%d')
     output_file = os.path.join(OUTPUT_FOLDER, f'Dashboard_{today}.xlsx')
@@ -430,23 +451,18 @@ def _apply_pivot_colors(worksheet, df):
                 cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
                 cell.font = Font(color="9C0006", bold=True)
 
-# ============================================================
-# STEP 11: UPLOAD TO GOOGLE DRIVE
-# ============================================================
+# GOOGLE DRIVE
 def upload_to_google_drive(file_path):
-    """Upload dashboard to Google Drive using Service Account"""
     try:
         from googleapiclient.discovery import build
         from googleapiclient.http import MediaFileUpload
         from google.oauth2 import service_account
 
-        # Service account credentials from environment variable
         creds_json = os.environ.get("GOOGLE_DRIVE_CREDENTIALS", "")
         if not creds_json:
             print("[WARNING] GOOGLE_DRIVE_CREDENTIALS not set, skipping upload")
             return None
 
-        # Parse credentials
         creds_info = json.loads(creds_json)
         credentials = service_account.Credentials.from_service_account_info(
             creds_info,
@@ -454,13 +470,9 @@ def upload_to_google_drive(file_path):
         )
 
         service = build('drive', 'v3', credentials=credentials)
-
-        # Folder ID where to upload (from environment variable)
         folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID", "")
-
         file_name = os.path.basename(file_path)
 
-        # Check if file already exists (update instead of create)
         query = f"name='{file_name}' and trashed=false"
         if folder_id:
             query += f" and '{folder_id}' in parents"
@@ -471,28 +483,23 @@ def upload_to_google_drive(file_path):
         media = MediaFileUpload(file_path, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
         if existing_files:
-            # Update existing file
             file_id = existing_files[0]['id']
             updated = service.files().update(fileId=file_id, media_body=media).execute()
-            print(f"[DRIVE] Updated: {file_name} (ID: {file_id})")
+            print(f"[DRIVE] Updated: {file_name}")
             return file_id
         else:
-            # Create new file
             file_metadata = {'name': file_name}
             if folder_id:
                 file_metadata['parents'] = [folder_id]
-
             created = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
-            print(f"[DRIVE] Uploaded: {file_name} (ID: {created['id']})")
+            print(f"[DRIVE] Uploaded: {file_name}")
             return created['id']
 
     except Exception as e:
         print(f"[ERROR] Google Drive upload failed: {e}")
         return None
 
-# ============================================================
 # MAIN
-# ============================================================
 def main():
     print("=" * 70)
     print("  CHARTINK GITHUB ACTIONS AUTOMATION")
@@ -501,16 +508,13 @@ def main():
 
     create_all_folders()
 
-    # Phase 1: Download
     print("\n[PHASE 1] Downloading from Chartink...")
     download_files()
 
-    # Phase 2: Process
     print("\n[PHASE 2] Processing...")
     chartink1_df = process_chartink1_folder()
     chartink_df = process_chartink_folder()
 
-    # Phase 3: Sheets
     print("\n[PHASE 3] Creating sheets...")
     long_df = create_long_sheet(chartink1_df)
     short_df = create_short_sheet(chartink_df)
@@ -518,11 +522,9 @@ def main():
     sell_pivot = create_sell_pivot(short_df)
     fno_df = create_fno_sheet(chartink1_df, chartink_df)
 
-    # Phase 4: Dashboard
     print("\n[PHASE 4] Generating Dashboard...")
     output_file = generate_dashboard(chartink1_df, chartink_df, long_df, short_df, buy_pivot, sell_pivot, fno_df)
 
-    # Phase 5: Upload to Google Drive
     print("\n[PHASE 5] Uploading to Google Drive...")
     upload_to_google_drive(output_file)
 
