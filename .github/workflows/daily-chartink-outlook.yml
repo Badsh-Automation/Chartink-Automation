@@ -38,6 +38,7 @@ jobs:
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
           EMAIL_RECEIVER: ${{ secrets.EMAIL_RECEIVER }}
           EMAIL_PROVIDER: ${{ secrets.EMAIL_PROVIDER }}
+          SKIP_WEEKEND: ${{ secrets.SKIP_WEEKEND }}
         run: python chartink_outlook.py
 
       - name: Upload artifact (backup)
