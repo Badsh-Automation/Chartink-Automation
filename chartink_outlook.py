@@ -43,6 +43,9 @@ SHORT_PREFIX = "badsha short"
 def is_weekday():
     return datetime.now().weekday() < 5
 
+# Weekend skip toggle - Set SKIP_WEEKEND=false in GitHub Secrets to run on Sat/Sun
+SKIP_WEEKEND = os.environ.get("SKIP_WEEKEND", "true").strip().lower() in ("true", "1", "yes", "on")
+
 # SMTP Config based on provider
 SMTP_CONFIG = {
     "gmail": {"server": "smtp.gmail.com", "port": 587},
@@ -483,8 +486,9 @@ Chartink Automation
         return False
 
 def main():
-    if not is_weekday():
+    if SKIP_WEEKEND and not is_weekday():
         print("[INFO] Weekend (Sat/Sun) - Skipping run")
+        print("[INFO] To run on weekends, set SKIP_WEEKEND=false in secrets")
         print("=" * 70)
         print("  ⏭️ SKIPPED - Weekend")
         print("=" * 70)
