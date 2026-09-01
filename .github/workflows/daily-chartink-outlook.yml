@@ -2,7 +2,7 @@ name: Daily Chartink Dashboard
 
 on:
   schedule:
-    - cron: '30 8 * * *'   # 8:30 UTC = 2:00 PM IST daily (Mon-Sun)
+    - cron: '0 10 * * *'   # 10:00 UTC = 3:30 PM IST daily (Mon-Sun)
   workflow_dispatch:
 
 jobs:
